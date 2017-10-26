@@ -1,0 +1,444 @@
+<style>
+
+.reveal section img {
+  border: 0px;
+  box-shadow: 0 0 0 0;
+}
+.reveal table td {
+  border: 0px;
+}
+
+.reveal table {
+  border: 0px;
+}
+
+.reveal h1 {
+  font-size: 2em;
+}
+
+.reveal h3 {
+  font-size: 1.2em;
+}
+
+.reveal figcaption {
+  font-size: 0.4em;
+}
+
+.smallcode pre code {
+  font-size: 0.9em;
+}
+
+.reveal .smalltext {
+  font-size: 0.75em;
+}
+
+
+header {
+hyphens: none;
+}
+
+</style>
+
+
+Dynamic forecasts - with Bayesian linear models and neural networks
+========================================================
+author: Sigrid Keydana, Trivadis
+date: 2017/14/11
+autosize: true
+incremental:false
+width: 1400
+height: 900
+
+
+========================================================
+type:prompt
+
+&nbsp; 
+
+&nbsp; 
+
+<h1>
+Dynamic models for timeseries prediction, - why?
+</h1>
+
+
+Our task today: forecast men's 400m Olympic winning times
+========================================================
+
+&nbsp;
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.width=16, fig.height=8, fig.path='Figs/',
+                      echo=FALSE, warning=FALSE, message=FALSE,
+                      cache = TRUE)
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(forecast)
+library(tidyr)
+library(keras)
+library(R.matlab)
+library(grid)
+library(venneuler)
+bold_text_20 <- element_text(face = "bold", size = 20)
+bold_text_16 <- element_text(face = "bold", size = 16)
+```
+
+
+It's 2000, just before the Olympics. This is the data we have:
+
+```{r}
+data <- readMat("olympics.mat")
+male400 <- data$male400[ ,1:2]
+male400 <- as.data.frame(male400) %>% rename(year = V1, seconds = V2)
+male400 <- male400 %>% bind_rows(
+  c(year = 2012, seconds = 43.94), c(year = 2016, seconds = 43.03))
+
+# data up till 1996
+male400_1996 <- male400 %>% filter(year < 1997)
+
+# data from 2000
+male400_2000 <- male400 %>% filter(year > 1997)
+
+ggplot(male400_1996, aes(x = year, y = seconds)) + geom_line() + ggtitle("Men's 400m Olympic winning times 1986-1996") +
+  xlab("year") + ylab("seconds") + 
+  theme(title = bold_text_20, axis.title = bold_text_20, axis.text = bold_text_20)
+
+
+```
+
+
+
+
+This looks like we might even try linear regression...
+========================================================
+class:smallcode
+
+&nbsp;
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+```{r, echo=TRUE}
+lm(seconds ~ year, male400_1996) %>% coefficients()
+```
+
+```{r}
+fit <- lm(seconds ~ year, male400_1996)
+df <- male400_1996 %>% bind_rows(data.frame(year = seq(2000, 2016, by=4)))
+preds <- fit %>% predict(newdata = df[25:29, ], interval = "prediction")
+df <- df %>% bind_cols(data.frame(pred = c(rep(NA, 24), preds[ , 1]),
+                                  lwr = c(rep(NA, 24), preds[ , 2]),
+                                  upr = c(rep(NA, 24), preds[ , 3])))
+
+ggplot(df, aes(x = year, y=seconds)) + geom_line() + 
+  geom_point(aes(y = pred), color = "green", size = 3) +
+  geom_ribbon(aes(x = year, ymin = lwr, ymax = upr), alpha = 0.1) +
+  ggtitle("Men's 400m Olympic winning times 1986-1996 and predictions for 2000-2016") +
+  xlab("year") + ylab("seconds") + 
+  theme(title = bold_text_20, axis.title = bold_text_20, axis.text = bold_text_20, legend.position = "none")
+```
+
+
+Unfortunately...
+========================================================
+class:smallcode
+
+&nbsp;
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+```{r}
+fit <- lm(seconds ~ year, male400_1996)
+df <- male400 
+preds <- fit %>% predict(newdata = df[25:29, ], interval = "prediction")
+df <- df %>% bind_cols(data.frame(pred = c(rep(NA, 24), preds[ , 1]),
+                                  lwr = c(rep(NA, 24), preds[ , 2]),
+                                  upr = c(rep(NA, 24), preds[ , 3])))
+
+ggplot(df, aes(x = year, y=seconds)) + geom_line() + 
+  geom_point(aes(y = pred), color = "red", size = 3) +
+  geom_ribbon(aes(x = year, ymin = lwr, ymax = upr, alpha = 0.1)) +
+  ggtitle("Men's 400m Olympic winning times 1986-2016 and predictions for 2000-2016") +
+  xlab("year") + ylab("seconds") + 
+  theme(title = bold_text_20, axis.title = bold_text_20, axis.text = bold_text_20, legend.position = "none")
+```
+
+OK then... let's just use ARIMA
+========================================================
+class:smallcode
+
+&nbsp;
+
+(just take this cum grano salis as the series is not 100% regular)
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+```{r, echo=TRUE}
+arima_fit <- auto.arima(male400_1996$seconds)
+arima_fit$coef
+```
+
+
+```{r}
+autoplot(forecast(arima_fit, h=5))
+```
+
+
+
+What if... 
+========================================================
+class:smallcode
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+&nbsp;
+
+What if we didn't have to:
+
+- use static coefficients?
+
+or even:
+- model linear relationships?
+
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+
+
+No static coefficients needed: Dynamic linear models (DLMs)
+========================================================
+class:smallcode
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+&nbsp;
+
+<figure>
+    <img src='dlm_diag.png' />
+</figure>
+
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+
+
+
+Deep and non-linear: LSTM networks
+========================================================
+class:smallcode
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+&nbsp;
+
+pic lstm----
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+
+========================================================
+type:prompt
+
+&nbsp; 
+
+&nbsp; 
+
+<h1>
+Dynamic linear models
+</h1>
+
+
+State space models
+========================================================
+class:smallcode
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+&nbsp;
+
+<figure>
+    <img src="hmm.png" width='70%'/>
+    <figcaption>Source: Wikipedia</figcaption>
+</figure>
+
+&nbsp;
+
+&nbsp;
+
+States form a Markov chain.
+
+Observations are independent conditional on states.
+
+Hidden states, observations, and time
+========================================================
+class:smallcode
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+&nbsp;
+
+- Hidden states evolve in time (state equation):
+
+$$\theta_t = G_t\theta_{t-1} + w_t$$ 
+- Hidden states generate observables (observation equation):
+
+$$Y_t = F_t\theta_t + v_t$$ 
+- System noise is normally distributed with mean $0$ and variance $W_t$: 
+
+$$w_t \sim \mathcal{N}_p(0, W_t)$$
+- Observation noise is normally distributed with mean $0$ and variance $V_t$: 
+
+$$v_t \sim \mathcal{N}_p(0, V_t)$$
+
+
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+
+How is this dynamic?
+========================================================
+class:smallcode
+
+&nbsp;
+
+In theory, any and all of 
+
+- system noise
+- observation noise
+- state equation
+- observation equation 
+
+could change over time.
+
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+&nbsp;
+
+
+Example: Where's the unicorn?
+========================================================
+class:smallcode
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+&nbsp;
+
+- All we have is a sequence of (noisy) observations
+- And a sequence of hypothesized true positions (states)
+
+How can we optimise our assumptions about the true position?
+
+<figure>
+    <img src='unicorn.png' style="opacity: 0.5;" width="400%"/>
+</figure>
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+
+
+
+Bayesian updating
+========================================================
+class:smallcode
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+&nbsp;
+
+- At any time, we have a current best estimate on where the unicorn is (given past observations)
+- We compute the next true position (state) based on the _state equation_ (this is the _prior_)
+- We predict the corresponding observation based on the _observation equation_ (this is the _likelihood_)
+- As soon as the new observation arrives, we can correct our estimate and compute the _posterior_ on the state
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+
+
+
+Show me the math: Kalman filter
+========================================================
+class:smalltext
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+
+&nbsp;
+
+The model 
+
+- state equation $\theta_t = G_t\theta_{t-1} + w_t$, where $w_t \sim \mathcal{N}_p(0, W_t)$
+- observation equation $Y_t = F_t\theta_t + v_t$, where $v_t \sim \mathcal{N}_p(0, V_t)$
+- prior $\theta_0 \sim \mathcal{N}_p(m_0, C_0)$
+
+&nbsp;
+
+Kalman steps (given: $\theta_{t-1}|y_{1:t-1} \sim \mathcal{N}(m_{t-1}, C_{t-1})$)
+
+  1. One-step-ahead predictive distribution of $\theta_t$ given $y_{1:t-1}$:
+  
+  $E(\theta_t|y_{1:t-1}) = a_t = G_tm_{t-1}$ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; $Var(\theta_t|y_{1:t-1}) = R_t = G_tC_{t-1}G'_t + W_t$
+
+  2.  One-step-ahead predictive distribution of $Y_t$ given $y_{1:t-1}$:
+  
+  $E(Y_t|y_{1:t-1}) = f_t = F_t a_t$ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; $Var(Y_t|y_{1:t-1}) = Q_t = F_tR_tF'_t + V_t$
+
+  3. Filtering distribution of $\theta_t$ given $y_{1:t}$:
+  
+  $E(\theta_t|y_{1:t}) = m_t = a_t + R_tF'_tQ_t^{-1}e_t$ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; $Var(\theta_t|y_{1:t}) = C_t = R_t - R_tF'_tQ_t^{-1}F_tR_t$ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; where $e_t =  Y_t - f_t$ is the forecast error.
+
+
+
+Kalman filter no-math version
+========================================================
+class:smallcode
+
+
+TBD
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+&nbsp;
+
+
+
+
+
+
+
+========================================================
+type:prompt
+
+&nbsp; 
+
+&nbsp; 
+
+<h1>
+Deep Learning: Long Short Term Momory
+</h1>
+
+
+

@@ -4,7 +4,7 @@ library(forecast)
 library(dlm)
 
 ggplot(male400, aes(x = year, y = seconds)) + geom_line() +
-  geom_point(data = male400_2000, size=1) +
+  geom_point(data = male400, size=1) +
   ggtitle("Men's 400m Olympic winning times 1986-2016") +
   xlab("year") + ylab("seconds") 
 
@@ -16,7 +16,7 @@ summary(fit)
 acf(fit$residuals)
 qqnorm(fit$residuals) #!!!
 
-df <- male400_1996 %>% bind_cols(is_pred = factor(rep(0, nrow(y)), levels = c(0,1)))
+df <- male400_1996 %>% bind_cols(is_pred = factor(rep(0, nrow(male400_1996)), levels = c(0,1)))
 df <-  df %>% bind_rows(data.frame(year = seq(2000, 2016, by=4), is_pred = factor(rep(1,5), levels = c(0,1))))
 preds <- fit %>% predict(newdata = df, interval = "prediction")
 df[25:29,2] <- preds[25:29,1]

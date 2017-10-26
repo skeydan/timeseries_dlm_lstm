@@ -4,17 +4,18 @@ library(dlm)
 library(zoo)
 library("quantmod")
 
-amd <- getSymbols("AMD", from="2016-01-01", to="2017-10-01", auto.assign = FALSE)$AMD.Adjusted
+amd <- getSymbols("AMD", from="2017-01-01", to="2017-10-01", auto.assign = FALSE)$AMD.Adjusted
 autoplot(amd)
-nvda <- getSymbols("NVDA", from="2016-01-01", to="2017-10-01", auto.assign = FALSE)$NVDA.Adjusted
+nvda <- getSymbols("NVDA", from="2017-01-01", to="2017-10-01", auto.assign = FALSE)$NVDA.Adjusted
 autoplot(nvda)
-smh <- getSymbols("SMH", from="2016-01-01", to="2017-10-01", auto.assign = FALSE)$SMH.Adjusted
+smh <- getSymbols("SMH", from="2017-01-01", to="2017-10-01", auto.assign = FALSE)$SMH.Adjusted
 autoplot(smh)
-mu <- getSymbols("MU", from="2016-01-01", to="2017-10-01", auto.assign = FALSE)$MU.Adjusted
+mu <- getSymbols("MU", from="2017-01-01", to="2017-10-01", auto.assign = FALSE)$MU.Adjusted
 autoplot(mu)
+ibm <- getSymbols("IBM", from="2017-01-01", to="2017-10-01", auto.assign = FALSE)$IBM.Adjusted
+autoplot(ibm)
 
-
-df <- data.frame(index(amd), amd, nvda, mu, smh)
+df <- data.frame(index(amd), amd, nvda, mu, smh, ibm)
 (tss <- read.zoo(df))
 autoplot(tss) + facet_grid(Series ~ ., scales = "free_y")
 
@@ -22,8 +23,8 @@ other <- mu
 
 
 ###   Section 4.5.2: SUTSE models
-df <- data.frame( mu, nvda)
-inv <- read.table("Datasets/invest2.dat",col.names=c("Denmark","Spain"))
+df <- data.frame( other, nvda)
+# inv <- read.table("Datasets/invest2.dat",col.names=c("Denmark","Spain"))
 y <- ts(df)
 
 ## prior hyperparameters
@@ -39,12 +40,14 @@ gibbsTheta <- array(0, dim=c(TT+1,4, MC-1))
 gibbsV <- array(0, dim=c(2,2, MC))
 gibbsWmu <- array(0, dim=c(2,2, MC)) 
 gibbsWbeta <- array(0, dim=c(2,2, MC)) 
+
 mod <- dlm(FF = matrix(c(1,0),nrow=1) %x% diag(2),
            V = diag(2),
            GG = matrix(c(1,0,1,1),2,2) %x% diag(2),
            W = bdiag(diag(2), diag(2)),
            m0 = c(inv[1,1], inv[1,2],0,0),
            C0 = diag(x = 1e7, nrow = 4))
+mod
 # starting values 
 mod$V <- gibbsV[,,1] <- V0/(delta0-2)
 gibbsWmu[,,1] <- Wmu0/(delta1-2)
@@ -61,13 +64,16 @@ for(it in 1: (MC-1))
   S <- crossprod(y-theta[-1,] %*% t(mod$FF)) + V0
   gibbsV[,,it+1] <- solve(rwishart(df=delta0+1+TT,p=2,Sigma=solve(S)))
   mod$V <- gibbsV[,,it+1]
+  print(paste0("sampled V: ", gibbsV))
   # update Wmu and Wbeta
   theta.center <- theta[-1,]-(theta[-(TT+1),]  %*% t(mod$GG))
   SS1 <- crossprod(theta.center)[1:2,1:2] + Wmu0
   SS2 <- crossprod(theta.center)[3:4,3:4] + Wbeta0
   gibbsWmu[,,it+1] <- solve(rwishart(df=delta1+1+TT, Sigma=solve(SS1)))
+  print(paste0("sampled W mu: ", gibbsWmu))
   gibbsWbeta[,,it+1] <- solve(rwishart(df=delta2+1+TT, Sigma=solve(SS2)))
   mod$W <- bdiag(gibbsWmu[,,it+1], gibbsWbeta[,,it+1])   	
+  print(paste0("sampled W beta: ", gibbsWbeta))
 }
 
 ## MCMC diagnostics

@@ -4,7 +4,7 @@ library(dlm)
 library(zoo)
 library("quantmod")
 
-nvda <- getSymbols("NVDA", from="2016-01-01", to="2017-10-01", auto.assign = FALSE)$NVDA.Adjusted
+nvda <- getSymbols("NVDA", from="2017-01-01", to="2017-10-01", auto.assign = FALSE)$NVDA.Adjusted
 autoplot(nvda)
 
 # see https://stats.stackexchange.com/questions/214581/why-is-my-kalman-filter-trusting-so-much-my-observations!!
