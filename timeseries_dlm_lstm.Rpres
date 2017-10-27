@@ -75,6 +75,8 @@ Our task today: forecast men's 400m Olympic winning times
 knitr::opts_chunk$set(fig.width=16, fig.height=8, fig.path='Figs/',
                       echo=FALSE, warning=FALSE, message=FALSE,
                       cache = TRUE)
+
+options(digits = 4, scipen = 4)
 ```
 
 ```{r}
@@ -84,8 +86,9 @@ library(forecast)
 library(tidyr)
 library(keras)
 library(R.matlab)
-library(grid)
-library(venneuler)
+library(dlm)
+library(quantmod)
+
 bold_text_20 <- element_text(face = "bold", size = 20)
 bold_text_16 <- element_text(face = "bold", size = 16)
 ```
@@ -273,7 +276,7 @@ class:smallcode
 &nbsp;
 
 <figure>
-    <img src="hmm.png" width='70%'/>
+    <img src="hmm.png" width='40%'/>
     <figcaption>Source: Wikipedia</figcaption>
 </figure>
 
@@ -411,12 +414,32 @@ Kalman steps (given: $\theta_{t-1}|y_{1:t-1} \sim \mathcal{N}(m_{t-1}, C_{t-1})$
 
 
 
-Kalman filter no-math version
+Kalman filter in a nutshell
 ========================================================
 class:smallcode
 
 
-TBD
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+&nbsp;
+
+> We correct our prediction by how much it differs from the incoming observation.
+
+&nbsp;
+&nbsp;
+
+Posterior estimate &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; $E(\theta_t|y_{1:t}) = m_t = a_t + R_tF'_tQ_t^{-1}e_t$
+
+
+Kalman gain &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; $R_tF'_tQ_t^{-1}$
+
+
+Aside: Filtering vs. smoothing
+========================================================
+class:smallcode
+
+tbd
 
 <img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
 <img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
@@ -425,8 +448,414 @@ TBD
 
 
 
+Local level model ("random walk plus noise")
+========================================================
+class:smallcode
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+&nbsp;
+
+State equation: $\mu_t = \mu_{t-1} + w_t, w_t \sim \mathcal{N}(0, W)$
+
+Observation equation: $Y_t = \mu_t + v_t, v_t \sim \mathcal{N}(0, V)$
+
+$G = F = 1$
+
+&nbsp;
+
+&nbsp;
+
+W and V could be time-invariant or time-dependent.
 
 
+Local level example
+========================================================
+class:smallcode
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+&nbsp;
+
+
+
+```{r}
+lakeSup <- ts(read.table("Datasets/lakeSuperior.dat", skip = 3,
+                         colClasses = "numeric")[, 2], start = 1900)
+```
+
+```{r, echo=TRUE}
+library(dlm)
+
+build <- function(params) {
+  dlmModPoly(order = 1, dV = exp(params[1]), dW = exp(params[2]))
+}
+initial_params <- rep(log(var(diff(lakeSup))), 2)
+mle <- dlmMLE(lakeSup, initial_params, build)
+
+model <- dlmModPoly(order = 1, dV = exp(mle$par[1]), dW = exp(mle$par[2]))
+Map(function(x) round(x,2), unlist(model)) %>% unlist()
+```
+
+
+```{r, fig.width=10, fig.height=5}
+autoplot(lakeSup) + ggtitle("Annual precipitation at Lake Superior, 1990-1986") + theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16)
+
+```
+
+
+&nbsp;
+
+
+Local level example: Filtering and smoothing
+========================================================
+class:smallcode
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+
+&nbsp;
+
+
+```{r}
+filt <- dlmFilter(lakeSup, model)
+smooth <- dlmSmooth(lakeSup, model)
+df <- data.frame(year = time(lakeSup),
+                 actual = unclass(lakeSup),
+                 filtered = dropFirst(filt$m),
+                 smoothed = dropFirst(smooth$s))
+df <- gather(df, key = type, value = value, -year)
+ggplot(df, aes(x = year, y = value, color = type)) + geom_line() + 
+  ggtitle("Annual precipitation at Lake Superior: filtering and smoothing estimates") +
+  theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16)
+  
+```
+
+
+Two types of uncertainty
+========================================================
+class:smallcode
+
+&nbsp;
+
+How would the filtering and smoothing curves have looked had we specified equal degrees of system and observation noise?
+
+&nbsp;
+
+```{r, echo = TRUE}
+model2 <- dlmModPoly(order = 1, dV = 10, dW = 10)
+filt2 <- dlmFilter(lakeSup, model2)
+smooth2 <- dlmSmooth(lakeSup, model2)
+```
+
+```{r}
+df <- data.frame(year = time(lakeSup),
+                 actual = unclass(lakeSup),
+                 filtered = dropFirst(filt2$m),
+                 smoothed = dropFirst(smooth2$s))
+df <- gather(df, key = type, value = value, -year)
+ggplot(df, aes(x = year, y = value, color = type)) + geom_line() + 
+  ggtitle("Annual precipitation at Lake Superior: filtering and smoothing estimates") +
+  theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16)
+  
+```
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+
+&nbsp;
+
+
+
+
+Local level example: Forecasting 
+========================================================
+class:smallcode
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+
+&nbsp;
+
+```{r}
+build <- function(params) {
+  dlmModPoly(order = 1, dV = exp(params[1]), dW = exp(params[2]))
+}
+initial_params <- rep(log(var(diff(lakeSup))), 2)
+mle <- dlmMLE(lakeSup, initial_params, build)
+
+model <- dlmModPoly(order = 1, dV = exp(mle$par[1]), dW = exp(mle$par[2]))
+filt <- dlmFilter(lakeSup, model)
+fc <- dlmForecast(filt, nAhead = 10)
+fc_sd <- sqrt(unlist(fc$Q))
+lower <- fc$f - qnorm(0.025, lower = FALSE) * fc_sd
+upper <- fc$f + qnorm(0.025, lower = FALSE) * fc_sd
+df <- data.frame(year = c(time(lakeSup), 1987:1996),
+                 actual = c(unclass(lakeSup), rep(NA,10)),
+                 forecast = c(rep(NA,87), fc$f),
+                 lower = c(rep(NA,87), lower),
+                 upper = c(rep(NA,87), upper))
+ggplot(df, aes(x = year, y = actual)) + geom_line() + 
+  geom_line(aes(y = forecast), color = "red") + 
+  geom_ribbon(aes(ymin = df$lower, ymax = df$upper), alpha = .3) +
+  ggtitle("Annual precipitation at Lake Superior: forecasts with 95% prediction intervals") +
+  theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16)
+  
+```
+
+
+
+
+Another local level example: Nvidia stock prices
+========================================================
+class:smallcode
+
+&nbsp;
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+
+
+```{r}
+nvda <- getSymbols("NVDA", from="2017-01-01", to="2017-10-01", auto.assign = FALSE)$NVDA.Adjusted
+index <- index(nvda)
+nvda <- as.ts(nvda)
+log_var_diff <- log(var(diff(nvda)))
+```
+
+```{r, echo=TRUE}
+build <- function(params) {
+  dlmModPoly(order = 1, dV = exp(params[1]), dW = exp(params[2]))
+}
+initial_params <- rep(log_var_diff, 2)
+mle <- dlmMLE(nvda, initial_params, build)
+
+model <- dlmModPoly(order = 1, dV = exp(mle$par[1]), dW = exp(mle$par[2]))
+Map(function(x) round(x,2), unlist(model)) %>% unlist()
+```
+
+
+```{r, fig.width=10, fig.height=5}
+autoplot(nvda) + ggtitle("Nvidia stock prices, Jan.-Sept. 2017") + theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16)
+```
+
+
+Nvidia: filtering and smoothing
+========================================================
+class:smallcode
+
+&nbsp;
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+
+```{r}
+filt <- dlmFilter(nvda, model)
+smooth <- dlmSmooth(nvda, model)
+df <- data.frame(day = time(nvda),
+                 actual = unclass(nvda),
+                 filtered = dropFirst(filt$m),
+                 smoothed = dropFirst(smooth$s))
+df <- gather(df, key = type, value = value, -day)
+ggplot(df, aes(x = day, y = value, color = type)) + geom_line() + 
+  ggtitle("Nvidia stock prices: filtering and smoothing estimates") +
+  theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16)
+  
+```
+
+
+(No, the lines did not turn invisible...)
+
+
+Nvidia: Forecasting (or, let's beat the market)
+========================================================
+class:smallcode
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+
+&nbsp;
+
+```{r}
+build <- function(params) {
+  dlmModPoly(order = 1, dV = exp(params[1]), dW = exp(params[2]))
+}
+initial_params <- rep(log_var_diff, 2)
+mle <- dlmMLE(nvda, initial_params, build)
+
+model <- dlmModPoly(order = 1, dV = exp(mle$par[1]), dW = exp(mle$par[2]))
+filt <- dlmFilter(nvda, model)
+
+fc <- dlmForecast(filt, nAhead = 5)
+fc_sd <- sqrt(unlist(fc$Q))
+lower <- fc$f - qnorm(0.025, lower = FALSE) * fc_sd
+upper <- fc$f + qnorm(0.025, lower = FALSE) * fc_sd
+df <- data.frame(day = c(time(nvda), 189:193),
+                 actual = c(unclass(nvda), rep(NA,5)),
+                 forecast = c(rep(NA,188), fc$f),
+                 lower = c(rep(NA,188), lower),
+                 upper = c(rep(NA,188), upper))
+ggplot(df, aes(x = day, y = actual)) + geom_line() + 
+  geom_line(aes(y = forecast), color = "red") + 
+  geom_ribbon(aes(ymin = df$lower, ymax = df$upper), alpha = .3) +
+  ggtitle("Nvidia: forecasts with 95% prediction intervals") +
+  theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16)
+  
+```
+
+
+Not with this we won't...
+
+
+DLMs - beside the local level model
+========================================================
+class:smallcode
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+&nbsp;
+
+- linear trend model 
+- seasonal models 
+- regression models (with X as observation-generating matrix F and the coefficients as hidden state)
+- multivariate models, exploiting underlying commonalities ("seemingly unrelated time series")
+- multivariate regression models ("seemingly unrelated regression models")
+
+Again, system and observation noise (as well as the transition equations) could be time-invariant or changing over time.
+
+
+Nvidia revisited: Exploring relationships
+========================================================
+class:smallcode
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+&nbsp;
+
+Comparing Nvidia to AMD, Mu, and IBM:
+
+```{r}
+amd <- getSymbols("AMD", from="2017-01-01", to="2017-10-01", auto.assign = FALSE)$AMD.Adjusted
+nvda <- getSymbols("NVDA", from="2017-01-01", to="2017-10-01", auto.assign = FALSE)$NVDA.Adjusted
+mu <- getSymbols("MU", from="2017-01-01", to="2017-10-01", auto.assign = FALSE)$MU.Adjusted
+ibm <- getSymbols("IBM", from="2017-01-01", to="2017-10-01", auto.assign = FALSE)$IBM.Adjusted
+
+df <- data.frame(index(amd), amd, mu, ibm, nvda)
+tss <- read.zoo(df)
+autoplot(tss) + facet_grid(Series ~ ., scales = "free_y") + ggtitle("")  +
+  theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16)
+  
+
+```
+
+
+Does it look like Nvidia and IBM are negatively correlated?
+
+
+Nvidia and IBM: Linear regression
+========================================================
+class:smallcode
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+&nbsp;
+
+
+```{r, echo=TRUE}
+lm(nvda ~ ibm) %>% summary()
+```
+
+
+So there's a strong relationship...
+========================================================
+class:smallcode
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+&nbsp;
+
+... but is it really _constant over time_?
+
+```{r, echo=TRUE}
+lm(nvda ~ ibm) %>% residuals() %>% qqnorm()
+```
+
+&nbsp;
+
+
+
+
+
+DLM regression to the rescue!
+========================================================
+class:smallcode
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+&nbsp;
+
+```{r, echo=TRUE}
+build <- function(u) {
+  dlmModReg(ibm, dV = exp(u[1]), dW = exp(u[2 : 3]))
+}
+mle <- dlmMLE(nvda, parm = rep(0, 3), build)
+model <- build(mle$par)
+
+model$FF
+model$GG
+model$W
+model$V
+
+#outF <-dlmFilter(nvda, mod)
+#outF$m[1 + length(nvda), ]
+#outS <- dlmSmooth(nvda, mod)
+```
+
+
+
+DLM regression to the rescue!
+========================================================
+class:smallcode
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+&nbsp;
+
+```{r}
+filt <-dlmFilter(nvda, model)
+outF$m[1 + length(nvda), ] # final coefficients
+outS <- dlmSmooth(nvda, model)
+
+
+require(zoo)
+# development of coefficients
+plot(as.zoo(dropFirst(outF$m)), main = "", mar = c(0, 2.1, 0, 1.1),
+     oma = c(2.1,0,.1,.1), cex.axis = 0.5)
+plot(as.zoo(dropFirst(outS$s)), main = "", mar = c(0, 2.1, 0, 1.1),
+     oma = c(2.1,0,.1,.1), cex.axis = 0.5)
+```
+
+
+bla
+========================================================
+
+tbd regression
+
+tbd back to sports
 
 
 ========================================================
