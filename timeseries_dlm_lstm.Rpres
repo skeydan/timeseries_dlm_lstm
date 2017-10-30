@@ -14,10 +14,11 @@
 
 .reveal h1 {
   font-size: 2em;
+  hyphens: none;
 }
 
 .reveal h3 {
-  font-size: 1.2em;
+  font-size: 1.4em;
 }
 
 .reveal figcaption {
@@ -32,9 +33,8 @@
   font-size: 0.75em;
 }
 
-
-header {
-hyphens: none;
+.reveal .mediumtext {
+  font-size: 0.85em;
 }
 
 </style>
@@ -46,8 +46,33 @@ author: Sigrid Keydana, Trivadis
 date: 2017/14/11
 autosize: true
 incremental:false
-width: 1400
+width: 1600
 height: 900
+
+About me & my employer
+========================================================
+class:mediumtext
+
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+&nbsp;
+
+Trivadis
+- DACH-based IT consulting and service company, from traditional technologies to big data/machine learning/data science
+
+My background
+- from psychology/statistics via software development and database engineering to data science and ML/DL
+
+My passion
+- machine learning and deep learning
+- data science and (Bayesian) statistics
+- explanation/understanding over prediction accuracy
+
+Where to find me
+- blog: http://recurrentnull.wordpress.com
+- twitter: @zkajdan
 
 
 ========================================================
@@ -88,6 +113,7 @@ library(keras)
 library(R.matlab)
 library(dlm)
 library(quantmod)
+library(gridExtra)
 
 bold_text_20 <- element_text(face = "bold", size = 20)
 bold_text_16 <- element_text(face = "bold", size = 16)
@@ -192,7 +218,8 @@ arima_fit$coef
 
 
 ```{r}
-autoplot(forecast(arima_fit, h=5))
+autoplot(forecast(arima_fit, h=5)) + 
+  theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16, legend.position = "none")
 ```
 
 
@@ -219,7 +246,7 @@ or even:
 
 
 
-No static coefficients needed: Dynamic linear models (DLMs)
+No static coefficients needed: Dynamic Linear Models (DLMs)
 ========================================================
 class:smallcode
 
@@ -229,7 +256,7 @@ class:smallcode
 &nbsp;
 
 <figure>
-    <img src='dlm_diag.png' />
+    <img src='dlm_diag.png' width = 50%/>
 </figure>
 
 
@@ -299,16 +326,19 @@ class:smallcode
 
 - Hidden states evolve in time (state equation):
 
-$$\theta_t = G_t\theta_{t-1} + w_t$$ 
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; $\theta_t = G_t\theta_{t-1} + w_t$
+
 - Hidden states generate observables (observation equation):
 
-$$Y_t = F_t\theta_t + v_t$$ 
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; $Y_t = F_t\theta_t + v_t$
+
 - System noise is normally distributed with mean $0$ and variance $W_t$: 
 
-$$w_t \sim \mathcal{N}_p(0, W_t)$$
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; $w_t \sim \mathcal{N}(0, W_t)$
+
 - Observation noise is normally distributed with mean $0$ and variance $V_t$: 
 
-$$v_t \sim \mathcal{N}_p(0, V_t)$$
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; $v_t \sim \mathcal{N}(0, V_t)$
 
 
 
@@ -353,7 +383,7 @@ class:smallcode
 How can we optimise our assumptions about the true position?
 
 <figure>
-    <img src='unicorn.png' style="opacity: 0.5;" width="400%"/>
+    <img src='unicorn.png' style="opacity: 0.1;" width="80%"/>
 </figure>
 
 <img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
@@ -390,10 +420,10 @@ class:smalltext
 
 &nbsp;
 
-The model 
+Here's the model again
 
-- state equation $\theta_t = G_t\theta_{t-1} + w_t$, where $w_t \sim \mathcal{N}_p(0, W_t)$
-- observation equation $Y_t = F_t\theta_t + v_t$, where $v_t \sim \mathcal{N}_p(0, V_t)$
+- state equation $\theta_t = G_t\theta_{t-1} + w_t$, where $w_t \sim \mathcal{N}(0, W_t)$
+- observation equation $Y_t = F_t\theta_t + v_t$, where $v_t \sim \mathcal{N}(0, V_t)$
 - prior $\theta_0 \sim \mathcal{N}_p(m_0, C_0)$
 
 &nbsp;
@@ -439,7 +469,10 @@ Aside: Filtering vs. smoothing
 ========================================================
 class:smallcode
 
-tbd
+&nbsp;
+
+- In _filtering_, we base our estimates of the true states on all observations made _so far_.
+- In _smoothing_, we form our opinion about the states "in hindsight", based on all past and (available) future states.
 
 <img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
 <img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
@@ -596,11 +629,11 @@ fc_sd <- sqrt(unlist(fc$Q))
 lower <- fc$f - qnorm(0.025, lower = FALSE) * fc_sd
 upper <- fc$f + qnorm(0.025, lower = FALSE) * fc_sd
 df <- data.frame(year = c(time(lakeSup), 1987:1996),
-                 actual = c(unclass(lakeSup), rep(NA,10)),
+                 value = c(unclass(lakeSup), rep(NA,10)),
                  forecast = c(rep(NA,87), fc$f),
                  lower = c(rep(NA,87), lower),
                  upper = c(rep(NA,87), upper))
-ggplot(df, aes(x = year, y = actual)) + geom_line() + 
+ggplot(df, aes(x = year, y = value)) + geom_line() + 
   geom_line(aes(y = forecast), color = "red") + 
   geom_ribbon(aes(ymin = df$lower, ymax = df$upper), alpha = .3) +
   ggtitle("Annual precipitation at Lake Superior: forecasts with 95% prediction intervals") +
@@ -715,7 +748,7 @@ ggplot(df, aes(x = day, y = actual)) + geom_line() +
 Not with this we won't...
 
 
-DLMs - beside the local level model
+DLMs - besides the local level model
 ========================================================
 class:smallcode
 
@@ -727,7 +760,7 @@ class:smallcode
 - linear trend model 
 - seasonal models 
 - regression models (with X as observation-generating matrix F and the coefficients as hidden state)
-- multivariate models, exploiting underlying commonalities ("seemingly unrelated time series")
+- multivariate models, exploiting underlying commonalities ("seemingly unrelated time series equations")
 - multivariate regression models ("seemingly unrelated regression models")
 
 Again, system and observation noise (as well as the transition equations) could be time-invariant or changing over time.
@@ -759,7 +792,7 @@ autoplot(tss) + facet_grid(Series ~ ., scales = "free_y") + ggtitle("")  +
 ```
 
 
-Does it look like Nvidia and IBM are negatively correlated?
+Does it look like Nvidia and IBM have a somewhat "complementary" relationship?
 
 
 Nvidia and IBM: Linear regression
@@ -818,15 +851,11 @@ model$FF
 model$GG
 model$W
 model$V
-
-#outF <-dlmFilter(nvda, mod)
-#outF$m[1 + length(nvda), ]
-#outS <- dlmSmooth(nvda, mod)
 ```
 
 
 
-DLM regression to the rescue!
+Dynamic regression coefficients
 ========================================================
 class:smallcode
 
@@ -835,27 +864,55 @@ class:smallcode
 
 &nbsp;
 
+Final coefficients:
+
 ```{r}
 filt <-dlmFilter(nvda, model)
-outF$m[1 + length(nvda), ] # final coefficients
-outS <- dlmSmooth(nvda, model)
+filt$m[1 + length(nvda), ] # final coefficients
+```
 
+&nbsp;
 
-require(zoo)
-# development of coefficients
-plot(as.zoo(dropFirst(outF$m)), main = "", mar = c(0, 2.1, 0, 1.1),
-     oma = c(2.1,0,.1,.1), cex.axis = 0.5)
-plot(as.zoo(dropFirst(outS$s)), main = "", mar = c(0, 2.1, 0, 1.1),
-     oma = c(2.1,0,.1,.1), cex.axis = 0.5)
+Development of coefficients over time (except initial noise):
+
+```{r}
+intercept <- autoplot(as.ts(filt$m[ ,1])) + ggtitle("Intercept over time")  + ylab("intercept") +
+  theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16) + coord_cartesian(ylim=c(90,200))
+slope <-  autoplot(as.ts(filt$m[ ,2])) + ggtitle("Slope over time")  + ylab("slope") + coord_cartesian(ylim=c(-0.5, 0.5)) +
+  theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16)
+grid.arrange(intercept, slope, ncol=2)
 ```
 
 
-bla
+Back to the Olympics question...
 ========================================================
 
-tbd regression
+&nbsp;
 
-tbd back to sports
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+Let's model this as a dynamic regression problem!
+
+```{r, echo=TRUE}
+build <- function(u) {
+  dlmModReg(male400_1996$year, dV = exp(u[1]), dW = exp(u[2 : 3]))
+}
+mle <- dlmMLE(male400_1996$seconds, parm = rep(0, 3), build)
+model <- build(mle$par)
+model$FF
+model$GG
+model$W
+model$V
+
+filt <-dlmFilter(male400_1996$seconds, model)
+intercept <- autoplot(as.ts(filt$m[ ,1])) + ggtitle("Intercept over time")  + ylab("intercept") +
+  theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16) #+ coord_cartesian(ylim=c(90,200))
+slope <-  autoplot(as.ts(filt$m[ ,2])) + ggtitle("Slope over time")  + ylab("slope") #+ coord_cartesian(ylim=c(-0.5, 0.5)) +
+  #theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16)
+grid.arrange(intercept, slope, ncol=2)
+```
+
 
 
 ========================================================

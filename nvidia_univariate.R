@@ -7,6 +7,8 @@ library("quantmod")
 nvda <- getSymbols("NVDA", from="2017-01-01", to="2017-10-01", auto.assign = FALSE)$NVDA.Adjusted
 autoplot(nvda)
 
+#nvda <- window(nvda, start = as.Date("2017-05-15"))
+
 # see https://stats.stackexchange.com/questions/214581/why-is-my-kalman-filter-trusting-so-much-my-observations!!
 
 (index <- index(nvda))
@@ -14,8 +16,8 @@ nvda <- as.ts(nvda)
 
 StructTS(nvda)
 
-reldiff <- function(vec) diff(vec)/vec[-length(vec)]
-nvda <- reldiff(nvda)
+#reldiff <- function(vec) diff(vec)/vec[-length(vec)]
+#nvda <- reldiff(nvda)
 
 (log_var_diff <- log(var(diff(nvda))))
 
