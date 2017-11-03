@@ -12,36 +12,22 @@ require(keras)
 
 source("functions.R")
 
-amd <- getSymbols("AMD", from="2015-01-01", to="2017-10-01", auto.assign = FALSE)$AMD.Adjusted
-autoplot(amd)
-nvda <- getSymbols("NVDA", from="2015-01-01", to="2017-10-01", auto.assign = FALSE)$NVDA.Adjusted
-autoplot(nvda)
-mu <- getSymbols("MU", from="2015-01-01", to="2017-10-01", auto.assign = FALSE)$MU.Adjusted
-autoplot(mu)
-ibm <- getSymbols("IBM", from="2015-01-01", to="2017-10-01", auto.assign = FALSE)$IBM.Adjusted
-autoplot(ibm)
+traffic_df <- read_csv("internet-traffic-data-in-bits-fr.csv", col_names = c("hour", "bits"), skip = 1)
+ggplot(traffic_df, aes(x = hour, y = bits)) + geom_line() + ggtitle("Internet traffic")
 
-df <- data.frame(index(amd), amd, nvda, mu, ibm)
-(tss <- read.zoo(df))
-autoplot(tss) + facet_grid(Series ~ ., scales = "free_y")
-
-train <- window(mu, end = as.Date("2017-02-28")) %>% as.ts() %>% as.vector()
-test <- window(mu, start = as.Date("2017-03-01")) %>% as.ts() %>% as.vector()
-
-num_train <- length(train)
-num_test <- length(test)
-num_all <- num_train + num_test
+internet_train <- traffic_df$bits[1:800]
+internet_test <- traffic_df$bits[801:nrow(traffic_df)]
 
 model_exists <- FALSE
 
-lstm_num_predictions <- 6
-lstm_num_timesteps <- 6
+lstm_num_predictions <- 168
+lstm_num_timesteps <- 168
 batch_size <- 1
 epochs <- 500
 lstm_units <- 32
 lstm_type <- "stateless"
-data_type <- "data_diffed_scaled"
-test_type <- "MU"
+data_type <- "data_scaled"
+test_type <- "INTERNET"
 model_type <- "model_lstm_time_distributed"
 
 model_name <- build_model_name(model_type, test_type, lstm_type, data_type, epochs)
@@ -50,18 +36,15 @@ cat("\n#########################################################################
 cat("\nRunning model: ", model_name)
 cat("\n####################################################################################")
 
-train_diff <- diff(train)
-test_diff <- diff(test)
-
 # normalize
-minval <- min(train_diff)
-maxval <- max(train_diff)
+minval <- min(train)
+maxval <- max(train)
 
-train_diff <- normalize(train_diff, minval, maxval)
-test_diff <- normalize(test_diff, minval, maxval)
+train <- normalize(train, minval, maxval)
+test <- normalize(test, minval, maxval)
 
-matrix_train <- build_matrix(train_diff, lstm_num_timesteps + lstm_num_predictions) 
-matrix_test <- build_matrix(test_diff, lstm_num_timesteps + lstm_num_predictions) 
+matrix_train <- build_matrix(train, lstm_num_timesteps + lstm_num_predictions) 
+matrix_test <- build_matrix(test, lstm_num_timesteps + lstm_num_predictions) 
 
 X_train <- matrix_train[ ,1:lstm_num_timesteps]
 y_train <- matrix_train[ ,(lstm_num_timesteps + 1):(lstm_num_timesteps + lstm_num_predictions)]
@@ -119,22 +102,25 @@ test_add <- test[(lstm_num_timesteps+1):(length(test)-1)]
 test_add_matrix <- build_matrix(test_add, lstm_num_predictions)
 pred_test_undiff <- test_add_matrix + pred_test[ , , 1]
 
-df <- cbind(test, rbind(matrix(rep(NA, 12), nrow = 12, ncol = 6), pred_test_undiff) ) %>% t()
-df
+df <- data_frame(time_id = 1:149,
+                 test = test)
+for(i in seq_len(nrow(pred_test))) {
+  varname <- paste0("pred_test", i)
+  df <- mutate(df, !!varname := c(rep(NA, lstm_num_timesteps+1),
+                                  rep(NA, i-1),
+                                  pred_test_undiff[i, ],
+                                  rep(NA, num_test - lstm_num_predictions - lstm_num_timesteps-i)))
+}
 
-# df <- data_frame(time_id = 1:149,
-#                  test = test)
-# for(i in seq_len(nrow(pred_test))) {
-#   varname <- paste0("pred_test", i)
-#   df <- mutate(df, !!varname := c(rep(NA, lstm_num_timesteps+1),
-#                                   rep(NA, i-1),
-#                                   pred_test_undiff[i, ],
-#                                   rep(NA, num_test - lstm_num_predictions - lstm_num_timesteps-i)))
-# }
-# 
-# df <- df %>% filter(time_id %% 10== 0)
-# 
-# df <- df %>% gather(key = 'type', value = 'value', test:pred_test37) %>% arrange(time_id)
-# 
-# ggplot(df, aes(x = time_id, y = value)) + geom_line(aes(color = type, linetype=type)) 
+ggplot(df, aes(x = time_id, y =test)) + geom_line() +
+  coord_cartesian(xlim = c(45,100)) +
+ geom_line(aes(y = pred_test45), color = "cyan") + 
+  geom_line(aes(y = pred_test55), color = "red") + 
+  geom_line(aes(y = pred_test65), color = "green") + 
+  geom_line(aes(y = pred_test75), color = "violet") + 
+  geom_line(aes(y = pred_test85), color = "blue") 
+  
+
+df <- df %>% gather(key = 'type', value = 'value', test:pred_test37) %>% arrange(time_id)
+ggplot(df, aes(x = time_id, y = value)) + geom_line(aes(color = type, linetype=type))
 

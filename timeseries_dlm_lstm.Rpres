@@ -114,6 +114,8 @@ library(R.matlab)
 library(dlm)
 library(quantmod)
 library(gridExtra)
+library(readr)
+source("functions.R")
 
 bold_text_20 <- element_text(face = "bold", size = 20)
 bold_text_16 <- element_text(face = "bold", size = 16)
@@ -275,10 +277,11 @@ class:smallcode
 
 &nbsp;
 
-pic lstm----
+<figure>
+    <img src='lstm_olah2.png' width='80%'/>
+    <figcaption>Source: http://colah.github.io/posts/2015-08-Understanding-LSTMs/</figcaption>
+</figure>
 
-<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
-<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
 
 
 ========================================================
@@ -868,7 +871,7 @@ Final coefficients:
 
 ```{r}
 filt <-dlmFilter(nvda, model)
-filt$m[1 + length(nvda), ] # final coefficients
+filt$m[1 + length(nvda), ] # latest coefficients
 ```
 
 &nbsp;
@@ -886,6 +889,7 @@ grid.arrange(intercept, slope, ncol=2)
 
 Back to the Olympics question...
 ========================================================
+class:smallcode
 
 &nbsp;
 
@@ -900,19 +904,16 @@ build <- function(u) {
 }
 mle <- dlmMLE(male400_1996$seconds, parm = rep(0, 3), build)
 model <- build(mle$par)
-model$FF
-model$GG
-model$W
-model$V
-
 filt <-dlmFilter(male400_1996$seconds, model)
-intercept <- autoplot(as.ts(filt$m[ ,1])) + ggtitle("Intercept over time")  + ylab("intercept") +
-  theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16) #+ coord_cartesian(ylim=c(90,200))
-slope <-  autoplot(as.ts(filt$m[ ,2])) + ggtitle("Slope over time")  + ylab("slope") #+ coord_cartesian(ylim=c(-0.5, 0.5)) +
-  #theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16)
-grid.arrange(intercept, slope, ncol=2)
+filt$m[1 + length(male400_1996$seconds), ] # most recent coefficients
 ```
 
+```{r}
+intercept <- autoplot(as.ts(filt$m[ ,1])) + ggtitle("Intercept over time")  + ylab("intercept") +
+  theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16) + coord_cartesian(ylim=c(0,600))
+slope <-  autoplot(as.ts(filt$m[ ,2])) + ggtitle("Slope over time")  + ylab("slope") + coord_cartesian(ylim=c(-0.35, 0.05)) + theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16)
+grid.arrange(intercept, slope, ncol=2)
+```
 
 
 ========================================================
@@ -923,8 +924,572 @@ type:prompt
 &nbsp; 
 
 <h1>
-Deep Learning: Long Short Term Momory
+Deep Learning: Long Short Term Memory (LSTM)
 </h1>
 
 
+Learning temporal relationships: Recurrent Neural Networks
+========================================================
+class:mediumtext
 
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+&nbsp;
+
+<figure>
+    <img src='rnn1.png' width='80%'/>
+    <figcaption>Source: Goodfellow et al. 2016, Deep Learning</figcaption>
+</figure>
+
+
+I need to forget: Long Short Term Memory
+========================================================
+class:mediumtext
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+&nbsp;
+
+<figure>
+    <img src='lstm.png' align='left' width='60%'/> <img src='lstm2.png' align='right' width='40%'/>
+    <figcaption>Source: <a href='http://cs224d.stanford.edu/lecture_notes/LectureNotes4.pdf'>Stanford CS 224D Deep Learning for NLP Lecture Notes</a></figcaption>
+</figure>
+
+
+Stock market again: Micron Technology
+========================================================
+class:smallcode
+
+&nbsp;
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+
+```{r}
+mu <- getSymbols("MU", from="2015-01-01", to="2017-10-01", auto.assign = FALSE)$MU.Adjusted 
+autoplot(mu) + ggtitle("Mu stock prices, Jan. 2015 -Sept. 2017") + theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16)
+```
+
+
+&nbsp;
+
+Clearly remembering the downward walk won't help us to predict the near future...
+
+
+One-step-ahead forecasts from LSTM
+========================================================
+class:smallcode
+
+&nbsp;
+
+```{r, results="hide"}
+train <- window(mu, end = as.Date("2017-02-28")) %>% as.ts() %>% as.vector()
+test <- window(mu, start = as.Date("2017-03-01")) %>% as.ts() %>% as.vector()
+
+model_exists <- TRUE
+
+lstm_num_timesteps <- 30
+batch_size <- 1
+epochs <- 50
+lstm_units <- 32
+model_type <- "model_lstm_simple"
+lstm_type <- "stateless"
+data_type <- "scaled"
+test_type <- "MU"
+
+model_name <- build_model_name(model_type, test_type, lstm_type, data_type, epochs)
+
+minval <- min(train)
+maxval <- max(train)
+
+train <- normalize(train, minval, maxval)
+test <- normalize(test, minval, maxval)
+
+X_train <- build_X(train, lstm_num_timesteps) 
+y_train <- build_y(train, lstm_num_timesteps) 
+
+X_test <- build_X(test, lstm_num_timesteps) 
+y_test <- build_y(test, lstm_num_timesteps) 
+
+X_train <- reshape_X_3d(X_train)
+X_test <- reshape_X_3d(X_test)
+
+num_samples <- dim(X_train)[1]
+num_steps <- dim(X_train)[2]
+num_features <- dim(X_train)[3]
+
+# model
+if (!model_exists) {
+  set.seed(22222)
+  model <- keras_model_sequential() 
+  model %>% 
+    layer_lstm(units = lstm_units, input_shape = c(num_steps, num_features)) %>% 
+    layer_dense(units = 1) %>% 
+    compile(
+      loss = 'mean_squared_error',
+      optimizer = 'adam'
+    )
+  
+  model %>% summary()
+  
+  hist <- model %>% fit( 
+    X_train, y_train, batch_size = batch_size, epochs = epochs,
+    validation_data = list(X_test, y_test),
+    callbacks = callback_early_stopping(patience=2)
+  )
+  model %>% save_model_hdf5(filepath = paste0(model_name, ".h5"))
+} else {
+  model <- load_model_hdf5(filepath = paste0(model_name, ".h5"))
+}
+
+pred_train <- model %>% predict(X_train, batch_size = 1)
+pred_test <- model %>% predict(X_test, batch_size = 1)
+
+pred_train <- denormalize(pred_train, minval, maxval)
+pred_test <- denormalize(pred_test, minval, maxval)
+
+df <- data_frame(
+  time_id = 1:692,
+  train_ = c(denormalize(train, minval, maxval), rep(NA, length(test))),
+  test_ = c(rep(NA, length(train)), denormalize(test, minval, maxval)),
+  pred_train = c(rep(NA, lstm_num_timesteps), pred_train, rep(NA, length(test))),
+  pred_test = c(rep(NA, length(train)), rep(NA, lstm_num_timesteps), pred_test)
+)
+df <- df %>% gather(key = 'type', value = 'value', train_:pred_test)
+ggplot(df, aes(x = time_id, y = value)) + geom_line(aes(color = type)) + ggtitle("Mu stock prices, Jan. 2015 -Sept. 2017, with one-step-ahead forecasts for training and test sets") + theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16)
+
+```
+
+&nbsp;
+
+Here, the sequence length (length of the hidden state) was chosen to be 30.
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+
+How about multi-step forecasts?
+========================================================
+class:smallcode
+
+&nbsp;
+
+A way to get several predictions from an LSTM network in Keras: use TimeDistributed layer
+
+&nbsp;
+
+```{r, echo=TRUE, eval=FALSE}
+model <- keras_model_sequential() 
+
+model %>% 
+  layer_lstm(units = lstm_units, input_shape = c(num_steps, num_features), return_sequences = TRUE) %>% 
+  time_distributed(layer_dense(units = 1)) %>% 
+  compile(
+    loss = 'mean_squared_error',
+    optimizer = 'adam'
+  )
+```
+
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+
+What happens if we produce forecasts keeping the same state size?
+========================================================
+class:smallcode
+
+&nbsp;
+
+```{r, results="hide"}
+train <- window(mu, end = as.Date("2017-02-28")) %>% as.ts() %>% as.vector()
+test <- window(mu, start = as.Date("2017-03-01")) %>% as.ts() %>% as.vector()
+all <- mu %>% as.ts() %>% as.vector()
+
+num_train <- length(train)
+num_test <- length(test)
+num_all <- num_train + num_test
+
+model_exists <- TRUE
+
+lstm_num_predictions <- 30
+lstm_num_timesteps <- 30
+batch_size <- 1
+epochs <- 500
+lstm_units <- 32
+lstm_type <- "stateless"
+data_type <- "scaled"
+test_type <- "MU"
+model_type <- "model_lstm_time_distributed"
+
+build_model_name = function(model_type, test_type, lstm_type, data_type, epochs) {
+  paste(model_type, lstm_type, data_type, test_type, "timesteps", lstm_num_timesteps, sep="_")
+}
+model_name <- build_model_name(model_type, test_type, lstm_type, data_type, lstm_num_timesteps)
+
+minval <- min(train)
+maxval <- max(train)
+
+train <- normalize(train, minval, maxval)
+test <- normalize(test, minval, maxval)
+
+matrix_train <- build_matrix(train, lstm_num_timesteps + lstm_num_predictions) 
+matrix_test <- build_matrix(test, lstm_num_timesteps + lstm_num_predictions) 
+
+X_train <- matrix_train[ ,1:lstm_num_timesteps]
+y_train <- matrix_train[ ,(lstm_num_timesteps + 1):(lstm_num_timesteps + lstm_num_predictions)]
+
+X_test <- matrix_test[ ,1:lstm_num_timesteps]
+y_test <- matrix_test[ ,(lstm_num_timesteps + 1):(lstm_num_timesteps + lstm_num_predictions)]
+
+# Keras LSTMs expect the input array to be shaped as (no. samples, no. time steps, no. features)
+X_train <- reshape_X_3d(X_train)
+X_test <- reshape_X_3d(X_test)
+
+y_train <- reshape_X_3d(y_train)
+y_test <- reshape_X_3d(y_test)
+
+num_samples <- dim(X_train)[1]
+num_steps <- dim(X_train)[2]
+num_features <- dim(X_train)[3]
+
+# model
+if (!model_exists) {
+  set.seed(22222)
+  model <- keras_model_sequential() 
+  model %>% 
+    layer_lstm(units = lstm_units, input_shape = c(num_steps, num_features),
+               return_sequences = TRUE) %>% 
+    time_distributed(layer_dense(units = 1)) %>% 
+    compile(
+      loss = 'mean_squared_error',
+      optimizer = 'adam'
+    )
+  
+  model %>% summary()
+  
+  model %>% fit( 
+    X_train, y_train, batch_size = batch_size, epochs = epochs,
+    validation_data = list(X_test, y_test), callbacks = callback_early_stopping(patience=2)
+  )
+  model %>% save_model_hdf5(filepath = paste0(model_name, ".h5"))
+} else {
+  model <- load_model_hdf5(filepath = paste0(model_name, ".h5"))
+}
+
+pred_train <- model %>% predict(X_train, batch_size = 1)
+pred_test <- model %>% predict(X_test, batch_size = 1)
+
+pred_train <- denormalize(pred_train, minval, maxval)
+pred_test <- denormalize(pred_test, minval, maxval)
+
+pred_train <- pred_train[ , , 1]
+pred_test <- pred_test[ , , 1]
+
+df <- data_frame(time_id = 1:length(test),
+                 test = denormalize(test, minval, maxval))
+for(i in seq_len(nrow(pred_test))) {
+  varname <- paste0("pred_test", i)
+  df <- mutate(df, !!varname := c(rep(NA, lstm_num_timesteps),
+                                  rep(NA, i-1),
+                                  pred_test[i, ],
+                                  rep(NA, num_test - lstm_num_predictions - lstm_num_timesteps -i +1)))
+}
+
+ggplot(df, aes(x = time_id, y =test)) + geom_line() +
+  geom_line(aes(y = pred_test1), color = "cyan") + 
+  geom_line(aes(y = pred_test30), color = "violet") + 
+  geom_line(aes(y = pred_test60), color = "blue") + 
+  geom_line(aes(y = pred_test90), color = "red") + 
+  ggtitle("Mu stock prices test set, March 2017 - Sept. 2017, with selected 30-step-ahead forecasts") + theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16)
+
+```
+
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+
+Lowering state size to 12
+========================================================
+class:smallcode
+
+&nbsp;
+
+```{r, results="hide"}
+train <- window(mu, end = as.Date("2017-02-28")) %>% as.ts() %>% as.vector()
+test <- window(mu, start = as.Date("2017-03-01")) %>% as.ts() %>% as.vector()
+all <- mu %>% as.ts() %>% as.vector()
+
+num_train <- length(train)
+num_test <- length(test)
+num_all <- num_train + num_test
+
+model_exists <- TRUE
+
+lstm_num_predictions <- 12
+lstm_num_timesteps <- 12
+batch_size <- 1
+epochs <- 500
+lstm_units <- 32
+lstm_type <- "stateless"
+data_type <- "scaled"
+test_type <- "MU"
+model_type <- "model_lstm_time_distributed"
+
+build_model_name = function(model_type, test_type, lstm_type, data_type, epochs) {
+  paste(model_type, lstm_type, data_type, test_type, "timesteps", lstm_num_timesteps, sep="_")
+}
+model_name <- build_model_name(model_type, test_type, lstm_type, data_type, lstm_num_timesteps)
+
+minval <- min(train)
+maxval <- max(train)
+
+train <- normalize(train, minval, maxval)
+test <- normalize(test, minval, maxval)
+
+matrix_train <- build_matrix(train, lstm_num_timesteps + lstm_num_predictions) 
+matrix_test <- build_matrix(test, lstm_num_timesteps + lstm_num_predictions) 
+
+X_train <- matrix_train[ ,1:lstm_num_timesteps]
+y_train <- matrix_train[ ,(lstm_num_timesteps + 1):(lstm_num_timesteps + lstm_num_predictions)]
+
+X_test <- matrix_test[ ,1:lstm_num_timesteps]
+y_test <- matrix_test[ ,(lstm_num_timesteps + 1):(lstm_num_timesteps + lstm_num_predictions)]
+
+# Keras LSTMs expect the input array to be shaped as (no. samples, no. time steps, no. features)
+X_train <- reshape_X_3d(X_train)
+X_test <- reshape_X_3d(X_test)
+
+y_train <- reshape_X_3d(y_train)
+y_test <- reshape_X_3d(y_test)
+
+num_samples <- dim(X_train)[1]
+num_steps <- dim(X_train)[2]
+num_features <- dim(X_train)[3]
+
+# model
+if (!model_exists) {
+  set.seed(22222)
+  model <- keras_model_sequential() 
+  model %>% 
+    layer_lstm(units = lstm_units, input_shape = c(num_steps, num_features),
+               return_sequences = TRUE) %>% 
+    time_distributed(layer_dense(units = 1)) %>% 
+    compile(
+      loss = 'mean_squared_error',
+      optimizer = 'adam'
+    )
+  
+  model %>% summary()
+  
+  model %>% fit( 
+    X_train, y_train, batch_size = batch_size, epochs = epochs,
+    validation_data = list(X_test, y_test), callbacks = callback_early_stopping(patience=2)
+  )
+  model %>% save_model_hdf5(filepath = paste0(model_name, ".h5"))
+} else {
+  model <- load_model_hdf5(filepath = paste0(model_name, ".h5"))
+}
+
+pred_train <- model %>% predict(X_train, batch_size = 1)
+pred_test <- model %>% predict(X_test, batch_size = 1)
+
+pred_train <- denormalize(pred_train, minval, maxval)
+pred_test <- denormalize(pred_test, minval, maxval)
+
+pred_train <- pred_train[ , , 1]
+pred_test <- pred_test[ , , 1]
+
+df <- data_frame(time_id = 1:length(test),
+                 test = denormalize(test, minval, maxval))
+for(i in seq_len(nrow(pred_test))) {
+  varname <- paste0("pred_test", i)
+  df <- mutate(df, !!varname := c(rep(NA, lstm_num_timesteps),
+                                  rep(NA, i-1),
+                                  pred_test[i, ],
+                                  rep(NA, num_test - lstm_num_predictions - lstm_num_timesteps -i +1)))
+}
+
+ggplot(df, aes(x = time_id, y =test)) + geom_line() +
+  geom_line(aes(y = pred_test6), color = "cyan") + 
+  geom_line(aes(y = pred_test26), color = "red") + 
+  geom_line(aes(y = pred_test46), color = "violet") + 
+  geom_line(aes(y = pred_test66), color = "blue") + 
+  geom_line(aes(y = pred_test86), color = "green") +
+  geom_line(aes(y = pred_test106), color = "pink") +
+  geom_line(aes(y = pred_test126), color = "cyan")  + 
+  ggtitle("Mu stock prices test set, March 2017 - Sept. 2017, with selected 12-step-ahead forecasts") + theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16)
+
+```
+
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+
+
+... or even, to 6.
+========================================================
+class:smallcode
+
+&nbsp;
+
+```{r, results="hide"}
+train <- window(mu, end = as.Date("2017-02-28")) %>% as.ts() %>% as.vector()
+test <- window(mu, start = as.Date("2017-03-01")) %>% as.ts() %>% as.vector()
+all <- mu %>% as.ts() %>% as.vector()
+
+num_train <- length(train)
+num_test <- length(test)
+num_all <- num_train + num_test
+
+model_exists <- TRUE
+
+lstm_num_predictions <- 6
+lstm_num_timesteps <- 6
+batch_size <- 1
+epochs <- 500
+lstm_units <- 32
+lstm_type <- "stateless"
+data_type <- "scaled"
+test_type <- "MU"
+model_type <- "model_lstm_time_distributed"
+
+build_model_name = function(model_type, test_type, lstm_type, data_type, epochs) {
+  paste(model_type, lstm_type, data_type, test_type, "timesteps", lstm_num_timesteps, sep="_")
+}
+model_name <- build_model_name(model_type, test_type, lstm_type, data_type, lstm_num_timesteps)
+
+minval <- min(train)
+maxval <- max(train)
+
+train <- normalize(train, minval, maxval)
+test <- normalize(test, minval, maxval)
+
+matrix_train <- build_matrix(train, lstm_num_timesteps + lstm_num_predictions) 
+matrix_test <- build_matrix(test, lstm_num_timesteps + lstm_num_predictions) 
+
+X_train <- matrix_train[ ,1:lstm_num_timesteps]
+y_train <- matrix_train[ ,(lstm_num_timesteps + 1):(lstm_num_timesteps + lstm_num_predictions)]
+
+X_test <- matrix_test[ ,1:lstm_num_timesteps]
+y_test <- matrix_test[ ,(lstm_num_timesteps + 1):(lstm_num_timesteps + lstm_num_predictions)]
+
+# Keras LSTMs expect the input array to be shaped as (no. samples, no. time steps, no. features)
+X_train <- reshape_X_3d(X_train)
+X_test <- reshape_X_3d(X_test)
+
+y_train <- reshape_X_3d(y_train)
+y_test <- reshape_X_3d(y_test)
+
+num_samples <- dim(X_train)[1]
+num_steps <- dim(X_train)[2]
+num_features <- dim(X_train)[3]
+
+# model
+if (!model_exists) {
+  set.seed(22222)
+  model <- keras_model_sequential() 
+  model %>% 
+    layer_lstm(units = lstm_units, input_shape = c(num_steps, num_features),
+               return_sequences = TRUE) %>% 
+    time_distributed(layer_dense(units = 1)) %>% 
+    compile(
+      loss = 'mean_squared_error',
+      optimizer = 'adam'
+    )
+  
+  model %>% summary()
+  
+  model %>% fit( 
+    X_train, y_train, batch_size = batch_size, epochs = epochs,
+    validation_data = list(X_test, y_test), callbacks = callback_early_stopping(patience=2)
+  )
+  model %>% save_model_hdf5(filepath = paste0(model_name, ".h5"))
+} else {
+  model <- load_model_hdf5(filepath = paste0(model_name, ".h5"))
+}
+
+pred_train <- model %>% predict(X_train, batch_size = 1)
+pred_test <- model %>% predict(X_test, batch_size = 1)
+
+pred_train <- denormalize(pred_train, minval, maxval)
+pred_test <- denormalize(pred_test, minval, maxval)
+
+pred_train <- pred_train[ , , 1]
+pred_test <- pred_test[ , , 1]
+
+df <- data_frame(time_id = 1:length(test),
+                 test = denormalize(test, minval, maxval))
+for(i in seq_len(nrow(pred_test))) {
+  varname <- paste0("pred_test", i)
+  df <- mutate(df, !!varname := c(rep(NA, lstm_num_timesteps),
+                                  rep(NA, i-1),
+                                  pred_test[i, ],
+                                  rep(NA, num_test - lstm_num_predictions - lstm_num_timesteps -i +1)))
+}
+
+ggplot(df, aes(x = time_id, y =test)) + geom_line() +
+  geom_line(aes(y = pred_test8), color = "cyan") + 
+  geom_line(aes(y = pred_test18), color = "red") + 
+  geom_line(aes(y = pred_test28), color = "green") + 
+  geom_line(aes(y = pred_test38), color = "violet") + 
+  geom_line(aes(y = pred_test48), color = "blue") + 
+  geom_line(aes(y = pred_test58), color = "brown") + 
+  geom_line(aes(y = pred_test68), color = "orange")  +
+  geom_line(aes(y = pred_test78), color = "cyan") + 
+  geom_line(aes(y = pred_test88), color = "red") + 
+  geom_line(aes(y = pred_test98), color = "violet") + 
+  geom_line(aes(y = pred_test108), color = "blue") + 
+  geom_line(aes(y = pred_test118), color = "green") + 
+  geom_line(aes(y = pred_test128), color = "orange") + 
+  geom_line(aes(y = pred_test138), color = "pink") + 
+  ggtitle("Mu stock prices test set, March 2017 - Sept. 2017, with selected 12-step-ahead forecasts") + theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16)
+
+```
+
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+
+Evidently LSTM does not show its strength predicting a random walk...
+========================================================
+class:smallcode
+
+&nbsp;
+
+... let's give it some more adequate input!
+
+
+```{r}
+traffic_df <- read_csv("internet-traffic-data-in-bits-fr.csv", col_names = c("hour", "bits"), skip = 1)
+ggplot(traffic_df, aes(x = hour, y = bits)) + geom_line() + ggtitle("Internet traffic  in bits, 7 June to 31 July 2005. Hourly data.") + theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16)
+
+
+```
+
+This series has _multiple seasonality_.
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+
+
+TBD
+========================================================
+class:smallcode
+
+&nbsp;
+
+1step forecast
+multistep
+internet 1step
+internet multi
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
