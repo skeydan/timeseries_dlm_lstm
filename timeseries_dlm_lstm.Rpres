@@ -208,7 +208,7 @@ class:smallcode
 
 &nbsp;
 
-(just take this cum grano salis as the series is not 100% regular)
+(yes, the series is not totally regular, but let me make the point ;-))
 
 <img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
 <img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
@@ -1448,7 +1448,7 @@ ggplot(df, aes(x = time_id, y =test)) + geom_line() +
   geom_line(aes(y = pred_test118), color = "green") + 
   geom_line(aes(y = pred_test128), color = "orange") + 
   geom_line(aes(y = pred_test138), color = "pink") + 
-  ggtitle("Mu stock prices test set, March 2017 - Sept. 2017, with selected 12-step-ahead forecasts") + theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16)
+  ggtitle("Mu stock prices test set, March 2017 - Sept. 2017, with selected 6-step-ahead forecasts") + theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16)
 
 ```
 
@@ -1457,7 +1457,7 @@ ggplot(df, aes(x = time_id, y =test)) + geom_line() +
 <img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
 
 
-Evidently LSTM does not show its strength predicting a random walk...
+Clearly LSTM cannot show its true strength on a random walk...
 ========================================================
 class:smallcode
 
@@ -1479,17 +1479,170 @@ This series has _multiple seasonality_.
 <img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
 
 
-
-TBD
+Multiple seasonality
 ========================================================
 class:smallcode
 
 &nbsp;
 
-1step forecast
-multistep
-internet 1step
-internet multi
+- requires special treatment in classical state space models (use TBATS instead of ARIMA)
+- here, we just choose the length of the "outer" period as state size:
+
+&nbsp;
+
+```{r, eval=FALSE, echo = TRUE}
+lstm_units <- 24 * 7 # hourly * weekly
+model %>% 
+  layer_lstm(units = lstm_units, input_shape = c(num_steps, num_features),
+               return_sequences = TRUE) %>% 
+  time_distributed(layer_dense(units = 1)) %>% 
+  compile(
+    loss = 'mean_squared_error',
+    optimizer = 'adam'
+)
+```
+
 
 <img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
 <img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+
+
+168-step-ahead forecasts!
+========================================================
+class:smallcode
+
+&nbsp;
+
+And here are the forecasts, 168 steps ahead (displaying 3 only)
+&nbsp;
+
+```{r, results="hide"}
+internet_train <- traffic_df$bits[1:800]
+internet_test <- traffic_df$bits[801:nrow(traffic_df)]
+
+model_exists <- TRUE
+
+lstm_num_predictions <- 168
+lstm_num_timesteps <- 168
+batch_size <- 1
+epochs <- 500
+lstm_units <- 32
+lstm_type <- "stateless"
+data_type <- "data_scaled"
+test_type <- "INTERNET"
+model_type <- "model_lstm_time_distributed"
+
+model_name <- "model_lstm_time_distributed_stateless_data_scaled_internet_timesteps_168"
+
+train <- internet_train[!is.na(internet_train)]
+test <- internet_test[!is.na(internet_test)]
+
+num_train <- length(train)
+num_test <- length(test)
+num_all <- num_train + num_test
+
+# normalize
+minval <- min(train)
+maxval <- max(train)
+
+train <- normalize(train, minval, maxval)
+test <- normalize(test, minval, maxval)
+
+matrix_train <- build_matrix(train, lstm_num_timesteps + lstm_num_predictions) 
+matrix_test <- build_matrix(test, lstm_num_timesteps + lstm_num_predictions) 
+
+X_train <- matrix_train[ ,1:lstm_num_timesteps]
+y_train <- matrix_train[ ,(lstm_num_timesteps + 1):(lstm_num_timesteps + lstm_num_predictions)]
+
+X_test <- matrix_test[ ,1:lstm_num_timesteps]
+y_test <- matrix_test[ ,(lstm_num_timesteps + 1):(lstm_num_timesteps + lstm_num_predictions)]
+
+# Keras LSTMs expect the input array to be shaped as (no. samples, no. time steps, no. features)
+X_train <- reshape_X_3d(X_train)
+X_test <- reshape_X_3d(X_test)
+
+y_train <- reshape_X_3d(y_train)
+y_test <- reshape_X_3d(y_test)
+
+num_samples <- dim(X_train)[1]
+num_steps <- dim(X_train)[2]
+num_features <- dim(X_train)[3]
+
+# model
+if (!model_exists) {
+  set.seed(22222)
+  model <- keras_model_sequential() 
+  model %>% 
+    layer_lstm(units = lstm_units, input_shape = c(num_steps, num_features),
+               return_sequences = TRUE) %>% 
+    time_distributed(layer_dense(units = 1)) %>% 
+    compile(
+      loss = 'mean_squared_error',
+      optimizer = 'adam'
+    )
+  
+  model %>% summary()
+  
+  model %>% fit( 
+    X_train, y_train, batch_size = batch_size, epochs = epochs,
+    validation_data = list(X_test, y_test), callbacks = callback_early_stopping(patience=2)
+  )
+  model %>% save_model_hdf5(filepath = paste0(model_name, ".h5"))
+} else {
+  model <- load_model_hdf5(filepath = paste0(model_name, ".h5"))
+}
+
+pred_train <- model %>% predict(X_train, batch_size = 1)
+pred_test <- model %>% predict(X_test, batch_size = 1)
+
+pred_train <- denormalize(pred_train, minval, maxval)
+pred_test <- denormalize(pred_test, minval, maxval)
+
+pred_train <- pred_train[ , , 1]
+pred_test <- pred_test[ , , 1]
+
+df <- data_frame(time_id = 1:length(test),
+                 test = denormalize(test, minval, maxval))
+for(i in seq_len(nrow(pred_test))) {
+  varname <- paste0("pred_test", i)
+  df <- mutate(df, !!varname := c(rep(NA, lstm_num_timesteps),
+                                  rep(NA, i-1),
+                                  pred_test[i, ],
+                                  rep(NA, num_test - lstm_num_predictions - lstm_num_timesteps -i +1)))
+}
+
+ggplot(df, aes(x = time_id, y =test)) + geom_line()  +
+ geom_line(aes(y = pred_test1), color = "cyan") + 
+  geom_line(aes(y = pred_test48), color = "red") + 
+  geom_line(aes(y = pred_test96), color = "green")  + 
+  ggtitle("Internet traffic  in bits. 168-step-ahead forecasts for the test set.") + theme(title = bold_text_16, axis.title = bold_text_16, axis.text = bold_text_16)
+  
+```
+
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+
+
+Takeaways
+========================================================
+class:smallcode
+
+&nbsp;
+
+- Time series forecasting is not just ARIMA, exponential smoothing & co.
+- Especially for dynamically changing data, interesting alternatives are DLMs and Deep Learning
+- Lots of opportunities for experimentation... let's find the unicorn :-)
+
+&nbsp;
+
+Have fun!
+
+
+
+
+
+<img src="tri_logo_high.jpg" style="position:absolute;top:0px;right:0px; width: 10%" />
+<img src='cube3.png' border=0 style="position:absolute;top:90%;right:0px; width: 8%" />
+

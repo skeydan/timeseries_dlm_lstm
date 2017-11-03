@@ -70,7 +70,7 @@ if (!model_exists) {
   model %>% fit( 
     X_train, y_train, batch_size = batch_size, epochs = epochs,
     validation_data = list(X_test, y_test),
-    callbacks = callback_early_stopping(patience=2)train = c(internet_train, rep(NA, length(internet_test))),
+    callbacks = callback_early_stopping(patience=2)
     
   )
   model %>% save_model_hdf5(filepath = paste0(model_name, ".h5"))

@@ -18,7 +18,7 @@ ggplot(traffic_df, aes(x = hour, y = bits)) + geom_line() + ggtitle("Internet tr
 internet_train <- traffic_df$bits[1:800]
 internet_test <- traffic_df$bits[801:nrow(traffic_df)]
 
-model_exists <- FALSE
+model_exists <- TRUE
 
 lstm_num_predictions <- 168
 lstm_num_timesteps <- 168
@@ -35,6 +35,14 @@ model_name <- build_model_name(model_type, test_type, lstm_type, data_type, epoc
 cat("\n####################################################################################")
 cat("\nRunning model: ", model_name)
 cat("\n####################################################################################")
+
+
+train <- internet_train[!is.na(internet_train)]
+test <- internet_test[!is.na(internet_test)]
+
+num_train <- length(train)
+num_test <- length(test)
+num_all <- num_train + num_test
 
 # normalize
 minval <- min(train)
@@ -93,32 +101,23 @@ pred_test <- model %>% predict(X_test, batch_size = 1)
 pred_train <- denormalize(pred_train, minval, maxval)
 pred_test <- denormalize(pred_test, minval, maxval)
 
-# undiff
-train_add <- train[(lstm_num_timesteps+1):(length(train)-1)]
-train_add_matrix <- build_matrix(train_add, lstm_num_predictions)
-pred_train_undiff <- train_add_matrix + pred_train[ , , 1]
+pred_train <- pred_train[ , , 1]
+pred_test <- pred_test[ , , 1]
 
-test_add <- test[(lstm_num_timesteps+1):(length(test)-1)]
-test_add_matrix <- build_matrix(test_add, lstm_num_predictions)
-pred_test_undiff <- test_add_matrix + pred_test[ , , 1]
-
-df <- data_frame(time_id = 1:149,
-                 test = test)
+df <- data_frame(time_id = 1:length(test),
+                 test = denormalize(test, minval, maxval))
 for(i in seq_len(nrow(pred_test))) {
   varname <- paste0("pred_test", i)
-  df <- mutate(df, !!varname := c(rep(NA, lstm_num_timesteps+1),
+  df <- mutate(df, !!varname := c(rep(NA, lstm_num_timesteps),
                                   rep(NA, i-1),
-                                  pred_test_undiff[i, ],
-                                  rep(NA, num_test - lstm_num_predictions - lstm_num_timesteps-i)))
+                                  pred_test[i, ],
+                                  rep(NA, num_test - lstm_num_predictions - lstm_num_timesteps -i +1)))
 }
 
-ggplot(df, aes(x = time_id, y =test)) + geom_line() +
-  coord_cartesian(xlim = c(45,100)) +
- geom_line(aes(y = pred_test45), color = "cyan") + 
-  geom_line(aes(y = pred_test55), color = "red") + 
-  geom_line(aes(y = pred_test65), color = "green") + 
-  geom_line(aes(y = pred_test75), color = "violet") + 
-  geom_line(aes(y = pred_test85), color = "blue") 
+ggplot(df, aes(x = time_id, y =test)) + geom_line()  +
+ geom_line(aes(y = pred_test1), color = "cyan") + 
+  geom_line(aes(y = pred_test48), color = "red") + 
+  geom_line(aes(y = pred_test96), color = "green") 
   
 
 df <- df %>% gather(key = 'type', value = 'value', test:pred_test37) %>% arrange(time_id)
